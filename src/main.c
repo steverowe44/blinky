@@ -4,44 +4,43 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <stdio.h>
 #include <zephyr/kernel.h>
 #include <zephyr/drivers/gpio.h>
 
-/* 1000 msec = 1 sec */
-#define SLEEP_TIME_MS 1000
+#define PULSE_TIME_MS 150
 
-/* The devicetree node identifier for the "led0" alias. */
-#define LED0_NODE DT_ALIAS(led0)
-#define BUTTON0_NODE DT_NODELABEL(button0)
+static const struct gpio_dt_spec leds[] = {
+	GPIO_DT_SPEC_GET(DT_ALIAS(led0), gpios),
+	GPIO_DT_SPEC_GET(DT_ALIAS(led1), gpios),
+	GPIO_DT_SPEC_GET(DT_ALIAS(led2), gpios),
+	GPIO_DT_SPEC_GET(DT_ALIAS(led3), gpios),
+};
 
-/*
- * A build error on this line means your board is unsupported.
- * See the sample documentation for information on how to fix this.
- */
-static const struct gpio_dt_spec led = GPIO_DT_SPEC_GET(LED0_NODE, gpios);
-static const struct gpio_dt_spec button = GPIO_DT_SPEC_GET(BUTTON0_NODE, gpios);
+static const struct gpio_dt_spec button = GPIO_DT_SPEC_GET(DT_NODELABEL(button0), gpios);
+
+K_SEM_DEFINE(button_sem, 0, 1);
 
 void pin_isr(const struct device *dev, struct gpio_callback *cb, uint32_t pins)
 {
-	gpio_pin_toggle_dt(&led);
+	k_sem_give(&button_sem);
 }
 
 int main(void)
 {
 	int ret;
-	bool led_state = true;
+	static struct gpio_callback pin_cb_data;
 
-	if (!gpio_is_ready_dt(&led))
-	{
-		return 0;
+	for (int i = 0; i < ARRAY_SIZE(leds); i++) {
+		if (!gpio_is_ready_dt(&leds[i]))
+			return 0;
+		ret = gpio_pin_configure_dt(&leds[i], GPIO_OUTPUT_INACTIVE);
+		if (ret < 0)
+			return 0;
 	}
 
-	ret = gpio_pin_configure_dt(&led, GPIO_OUTPUT_ACTIVE);
-	if (ret < 0)
+	if (!gpio_is_ready_dt(&button))
 		return 0;
 
-	// button config
 	ret = gpio_pin_configure_dt(&button, GPIO_INPUT);
 	if (ret < 0)
 		return 0;
@@ -50,27 +49,18 @@ int main(void)
 	if (ret < 0)
 		return 0;
 
-	// set interrupt for button
-	static struct gpio_callback pin_cb_data;
 	gpio_init_callback(&pin_cb_data, pin_isr, BIT(button.pin));
 	gpio_add_callback(button.port, &pin_cb_data);
 
-	if (ret < 0)
-	{
-		return 0;
-	}
+	while (1) {
+		k_sem_take(&button_sem, K_FOREVER);
 
-	while (1)
-	{
-		ret = gpio_pin_toggle_dt(&led);
-		if (ret < 0)
-		{
-			return 0;
+		for (int i = 0; i < ARRAY_SIZE(leds); i++) {
+			gpio_pin_set_dt(&leds[i], 1);
+			k_msleep(PULSE_TIME_MS);
+			gpio_pin_set_dt(&leds[i], 0);
 		}
-
-		led_state = !led_state;
-		printf("LED state: %s\n", led_state ? "ON" : "OFF");
-		k_msleep(SLEEP_TIME_MS);
 	}
+
 	return 0;
 }
