@@ -5,30 +5,41 @@
  */
 
 #include <zephyr/kernel.h>
+#include <zephyr/logging/log.h>
 #include <zephyr/drivers/gpio.h>
+
+LOG_MODULE_REGISTER(blinky, LOG_LEVEL_NONE);
 
 #define PULSE_TIME_MS 150
 
 static const struct gpio_dt_spec leds[] = {
-	GPIO_DT_SPEC_GET(DT_ALIAS(led3), gpios),
 	GPIO_DT_SPEC_GET(DT_ALIAS(led0), gpios),
 	GPIO_DT_SPEC_GET(DT_ALIAS(led1), gpios),
 	GPIO_DT_SPEC_GET(DT_ALIAS(led2), gpios),
+	GPIO_DT_SPEC_GET(DT_ALIAS(led3), gpios),
 };
 
-static const struct gpio_dt_spec button = GPIO_DT_SPEC_GET(DT_NODELABEL(button0), gpios);
+static const struct gpio_dt_spec buttons[] = {
+	GPIO_DT_SPEC_GET(DT_NODELABEL(button0), gpios),
+	GPIO_DT_SPEC_GET(DT_NODELABEL(button1), gpios),
+	GPIO_DT_SPEC_GET(DT_NODELABEL(button2), gpios),
+	GPIO_DT_SPEC_GET(DT_NODELABEL(button3), gpios),
+};
 
 K_SEM_DEFINE(button_sem, 0, 1);
 
 void pin_isr(const struct device *dev, struct gpio_callback *cb, uint32_t pins)
 {
 	k_sem_give(&button_sem);
+	printk("Gave sem!\n");
+	LOG_INF("Test log info");
+	LOG_ERR("A log message in Error level!");
 }
 
 int main(void)
 {
 	int ret;
-	static struct gpio_callback pin_cb_data;
+	static struct gpio_callback pin_cb_data[ARRAY_SIZE(buttons)];
 
 	for (int i = 0; i < ARRAY_SIZE(leds); i++)
 	{
@@ -39,19 +50,20 @@ int main(void)
 			return 0;
 	}
 
-	if (!gpio_is_ready_dt(&button))
-		return 0;
+	for (int i = 0; i < ARRAY_SIZE(buttons); i++)
+	{
+		if (!gpio_is_ready_dt(&buttons[i]))
+			return 0;
+		ret = gpio_pin_configure_dt(&buttons[i], GPIO_INPUT);
+		if (ret < 0)
+			return 0;
+		ret = gpio_pin_interrupt_configure_dt(&buttons[i], GPIO_INT_EDGE_TO_ACTIVE);
+		if (ret < 0)
+			return 0;
 
-	ret = gpio_pin_configure_dt(&button, GPIO_INPUT);
-	if (ret < 0)
-		return 0;
-
-	ret = gpio_pin_interrupt_configure_dt(&button, GPIO_INT_EDGE_TO_ACTIVE);
-	if (ret < 0)
-		return 0;
-
-	gpio_init_callback(&pin_cb_data, pin_isr, BIT(button.pin));
-	gpio_add_callback(button.port, &pin_cb_data);
+		gpio_init_callback(&pin_cb_data[i], pin_isr, BIT(buttons[i].pin));
+		gpio_add_callback(buttons[i].port, &pin_cb_data[i]);
+	}
 
 	while (1)
 	{
