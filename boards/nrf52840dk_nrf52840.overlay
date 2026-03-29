@@ -1,7 +1,3 @@
-&gpiote {
-    status = "okay";
-};
-
 // To get started, press Ctrl+Space to bring up the completion menu and view the available nodes.
 
 // You can also use the buttons in the sidebar to perform actions on nodes.
